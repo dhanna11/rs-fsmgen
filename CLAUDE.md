@@ -2,6 +2,8 @@
 
 One state-machine table generates Rust runtime code, a stateright model, Kani harnesses, and a DOT
 diagram. The full plan is in `fsmgen-plan.md`. Decisions are in `docs/decisions.md`.
+What each result does and doesn't establish is tracked in `docs/assurance.md`. Update it whenever a
+phase lands or the evidence for a link changes.
 
 ## Status
 
