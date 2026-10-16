@@ -111,7 +111,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(feature = "planted-bug", should_panic)] // the planted bug breaks this
+    // Both planted defects break this: the bug resends a 4th time; the drift
+    // never counts resends, so it never gives up.
+    #[cfg_attr(any(feature = "planted-bug", feature = "planted-drift"), should_panic)]
     fn resends_max_tries_times_then_fails() {
         let (mut m, mut c) = started();
         for i in 1..=MAX_TRIES {

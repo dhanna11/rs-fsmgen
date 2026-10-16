@@ -9,7 +9,7 @@ this commit. The references at the end are the original papers and standard text
 1. §1–2 with `examples/toy-handshake/src/initiator.rs`: what the machine *is*.
 2. §3–4 with `examples/toy-handshake/src/model.rs` and `src/liveness.rs`: what we *check*.
 3. §5 with `examples/toy-handshake/tests/differential.rs`: why the check is about the *code*.
-4. §7–8: the planted bug, and the list of things to fix.
+4. §7–8: the two planted defects (a spec bug and a code/model drift), and the list of things to fix.
 5. §9 with Lynch's *Distributed Algorithms*, ch. 8: how one machine becomes a composed system
    (Phase 3).
 
@@ -111,7 +111,7 @@ Once `γ` is fixed, `δ` is a total *function*. This is the formula documented o
   plain `else` and the hook is called once.
 - `src/initiator.rs:331`: the group `(Waiting, Timeout)` = r6, r7. The guards are var predicates the
   generator can't prove exhaustive, so a third `else` arm (NoRow) is always emitted
-  (`src/initiator.rs:346`).
+  (`src/initiator.rs:348`).
 
 ### 2.2 Totality, completeness, consistency
 
@@ -292,10 +292,10 @@ for an action it never explores.
    on `Vars` (`src/initiator.rs:193`), and both `step` functions call them. The opaque part is
    structurally the same `if`/`else` chain in both. Decision D-005 records this. The generator
    will emit both arms from one IR walk.
-2. **By testing.** `tests/differential.rs:98` runs 5,000 random runs. The hooks return random guard
-   values and log them; `to_action` (`:81`) builds `β`. Each step checks that the square commutes
+2. **By testing.** `tests/differential.rs:103` runs 5,000 random runs. The hooks return random guard
+   values and log them; `to_action` (`:85`) builds `β`. Each step checks that the square commutes
    and that `β` is offered by `actions()`. At the end it checks that every abstract edge type was
-   exercised (`:158`). This is differential testing (McKeeman 1998) of the refinement claim. It
+   exercised (`:171`). This is differential testing (McKeeman 1998) of the refinement claim. It
    samples; it doesn't prove.
 
 ### 5.3 `Last` is a history variable
@@ -316,7 +316,7 @@ The cost is concrete. The 10 reachable configurations become 20 model states (ru
 
 ```text
 take state, leaving Poisoned  →  compute (q', d') on a copy  →  commit state, vars, last
-             src/initiator.rs:297                                src/initiator.rs:361
+             src/initiator.rs:297                                src/initiator.rs:363
 ```
 
 Actions take the source state's data *by value*. Rust's ownership has to move it out of
@@ -330,7 +330,19 @@ The model doesn't contain `Poisoned`. It assumes hooks never panic. That's a gap
 
 ---
 
-## §7. The planted bug, formally
+## §7. Two planted defects, and which check catches each
+
+There are two different ways a generated system can be wrong. Each has its own detector:
+
+| Kind of defect | Where it lives | Caught by | Planted as |
+|---|---|---|---|
+| **The spec is wrong** (a bad table row) | code *and* model, identically | model checking: a property fails | `--features planted-bug` (§7.1) |
+| **The code doesn't match the spec** (a generator bug, a hand edit) | one side only | the differential test: the §5.1 square doesn't commute | `--features planted-drift` (§7.2) |
+
+Each detector is blind to the other kind. With the bug, code and model agree (both wrong), so the
+differential test passes. With the drift, the model is right, so the model checker passes.
+
+### 7.1 The planted bug: a wrong table row
 
 Correct guards for `(Waiting, Timeout)`, with `M = MAX_TRIES`:
 
@@ -347,7 +359,35 @@ The bug (`--features planted-bug`, `src/initiator.rs:193`) changes `φ₆` to `d
 of length `M + 2` (Start, then `M + 1` Timeouts). The user property
 `AG (q = Failed → d = M)` fails on the same run.
 
-Notice that the bug is a §2.2 *consistency* violation. That leads to the first item below.
+Notice that the bug is a §2.2 *consistency* violation. That leads to the first item in §8.
+
+Because `φ₆` lives in one place (`Vars::r6_guard`), the one edit reaches both the runtime and the
+model, just as a typo in the table would once both are generated. The differential test still
+passes, because both sides are equally wrong.
+
+### 7.2 The planted drift: code and model disagree
+
+The drift (`--features planted-drift`, in the r6 arm of `Machine::step`) removes the update `u₆`
+from the runtime only. The model still applies it. In §5.1's terms, the square stops commuting at
+the first resend:
+
+```text
+α(Machine::step(c, Timeout)) = (Waiting, d)          runtime: tries unchanged
+model.step(α(c), Timeout)   = (Waiting, d + 1)       model:   tries += 1
+```
+
+What each check reports:
+- **Model checking:** all properties hold. The model is correct; it just isn't the code any more.
+- **The differential test:** it fails at the first timeout in `Waiting` with `vars differ`
+  (runtime `tries: 0`, model `tries: 1`).
+- **The unit test** `resends_max_tries_times_then_fails` also fails. That's only because someone
+  wrote that scenario.
+
+Without the differential test, this would be the worst kind of failure: a green model-check result
+about a model the code no longer implements. The drifted code never gives up, because `tries`
+never reaches `M`, but the verified model terminates. That's a liveness bug in the code that every
+property-based check misses, which is exactly the §3.3 premise ("the simulation must really
+hold") failing.
 
 ---
 

@@ -20,6 +20,10 @@
 //!
 //! It is differential testing (McKeeman 1998) of a refinement claim. It
 //! samples; it does not prove.
+//!
+//! With `--features planted-drift` the runtime stops applying `{ tries += 1 }`
+//! while the model still does, so this test must fail with "vars differ". The
+//! model checker can't see that defect; this test is what catches it.
 
 use stateright::Model;
 use toy_handshake::initiator::{Event, EventKind, Hooks, Last, Machine};
@@ -95,6 +99,7 @@ fn to_action(kind: EventKind, h: &mut Recording) -> Action {
 }
 
 #[test]
+#[cfg_attr(feature = "planted-drift", should_panic(expected = "vars differ"))]
 fn runtime_and_model_agree() {
     let model = InitiatorModel;
     let mut hooks = Recording {
@@ -123,9 +128,13 @@ fn runtime_and_model_agree() {
 
             if s.control.is_terminal() {
                 // The model has no actions here; the runtime ignores the event.
-                assert_eq!(m.state().control(), Some(s.control), "{ctx}");
-                assert_eq!(*m.vars(), s.vars, "{ctx}");
-                assert_eq!(m.last(), Last::NoRow(kind), "{ctx}");
+                assert_eq!(
+                    m.state().control(),
+                    Some(s.control),
+                    "{ctx}: control differs"
+                );
+                assert_eq!(*m.vars(), s.vars, "{ctx}: vars differ");
+                assert_eq!(m.last(), Last::NoRow(kind), "{ctx}: last row differs");
                 continue;
             }
 
@@ -138,9 +147,13 @@ fn runtime_and_model_agree() {
             model_actions_seen.insert((s.control, a));
 
             s = model.next_state(&s, a).unwrap();
-            assert_eq!(m.state().control(), Some(s.control), "{ctx}");
-            assert_eq!(*m.vars(), s.vars, "{ctx}");
-            assert_eq!(m.last(), s.last, "{ctx}");
+            assert_eq!(
+                m.state().control(),
+                Some(s.control),
+                "{ctx}: control differs"
+            );
+            assert_eq!(*m.vars(), s.vars, "{ctx}: vars differ");
+            assert_eq!(m.last(), s.last, "{ctx}: last row differs");
         }
     }
 

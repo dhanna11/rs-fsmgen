@@ -332,6 +332,8 @@ impl Machine {
                 // r6: Waiting + Timeout [tries < MAX_TRIES] / resend { tries += 1 } = _
                 if vars.r6_guard() {
                     let (t, out) = h.resend(s);
+                    // PLANTED DRIFT: the runtime skips the update; the model doesn't.
+                    #[cfg(not(feature = "planted-drift"))]
                     vars.r6_update();
                     (State::Waiting(t), Last::Row(Row::WaitingTimeoutResend), out)
                 }

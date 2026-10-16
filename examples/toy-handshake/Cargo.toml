@@ -13,6 +13,10 @@ model = ["dep:stateright"]
 # In the real tool that edit regenerates both runtime and model; here both pick it
 # up through the shared `Vars::r6_guard`.
 planted-bug = []
+# Simulates a code/model mismatch: the runtime's r6 branch forgets the var
+# update `{ tries += 1 }`; the model still applies it. The model checks clean,
+# and only the differential test notices. See theory.md §7.2.
+planted-drift = []
 
 [dependencies]
 stateright = { workspace = true, optional = true }

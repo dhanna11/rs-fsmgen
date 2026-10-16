@@ -59,7 +59,9 @@ world was.
   not derived from any standard.
 - The "reachable: X" properties guard against *vacuity*: a model so constrained that everything
   holds trivially. All four states are reachable.
-- One planted bug (`--features planted-bug`) is caught by two properties.
+- One planted spec bug (`--features planted-bug`) is caught by two properties. A second defect,
+  `planted-drift`, is a code/model mismatch rather than a spec error; that's L2's job, not L1's
+  (`theory.md` §7).
 
 **Status.** Assumed.
 
@@ -81,6 +83,10 @@ model simulates the code under the abstraction function α (`theory.md` §3.3, �
   outcomes. It checks that control state, vars and `Last` agree after every step. It also checks
   that every action the runtime takes is one the model offers, and that every (control, action)
   pair the model offers was exercised at least once.
+- **Demonstrated sensitive:** `--features planted-drift` removes a var update from the runtime
+  only. The model checker still reports every property holding, and the differential test fails
+  at the first resend (`theory.md` §7.2). This shows the test catches real drift, and that model
+  checking alone can't.
 
 **Status.** Tested.
 
