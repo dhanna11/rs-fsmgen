@@ -101,3 +101,51 @@ returns the shortest path to a stuck state.
 Trade-off: the model state includes `Last`, so states can multiply by up to the number of rows.
 That's fine at toy and Main Mode sizes. If composition blows up, we can replace `Last` with
 user-declared ghost vars.
+
+## D-007: Endpoints are Mealy machines; the verified system is an I/O-automaton composition
+
+**Status:** proposed. Agreed in discussion on 2026-10-16; needs lead sign-off along with
+D-001–D-006.
+
+**Decision.** Two formalisms, each where it fits (`docs/theory.md` §9):
+
+- **Generated endpoint code stays Mealy-style.** `Machine::step` takes one input and returns its
+  outputs atomically. The runtime, the `Hooks` trait and the codegen of D-003 are unchanged.
+- **The model checked for IKE (Phase 3) is an I/O-automaton composition** (Lynch & Tuttle 1989):
+
+  ```text
+  hide {messages} ( Initiator · Chan(I→R) · Responder · Chan(R→I) · Timer_I · Timer_R )
+  ```
+
+  Timers and channels are automata with locally controlled actions: a timeout fires, a message is
+  delivered, dropped or duplicated. Liveness assumptions are I/O-automaton fairness owed to those
+  components, not to guard outcomes.
+
+**Why the system can't stay Mealy.** Retransmission timers act on their own. Network faults are
+the channel's own choices. The peers interleave. Agreement and liveness are properties of the
+composite. A Mealy machine has no locally controlled actions, so it can express none of this.
+
+**Why the endpoints can.** Every Mealy machine encodes as an I/O automaton through an output
+buffer: the input action runs `δ` and appends `λ`'s outputs; output actions pop them. The real
+driver already does this, because `step()` returns a `Vec` that the driver sends afterwards.
+
+**Soundness requirement.** The model must include every interleaving the real system has. In
+reality, other events (such as a timer firing) can land between "`step()` returned `Send`" and
+"the packet is on the wire". A model that makes compute-and-send atomic explores fewer behaviours
+than reality and can miss bugs. The gap must be modelled:
+
+- **Unordered channel:** it's enough to put sends straight into the channel. The channel can
+  already delay and reorder any message, so it absorbs the gap.
+- **Ordered channel:** this needs an explicit outbox, or a proof that folding it in is equivalent.
+  Not assumed.
+
+**Implementation plan.** Generate endpoints as `stateright::actor::Actor`s whose handlers call the
+same shared `Vars` methods as `Machine::step` (D-005). Use stateright's `Network` variants and
+`LossyNetwork` for the channels, and its actor timers for timeouts.
+
+**Effect on D-006.** For the composed model, "every fair run terminates" is checked by searching
+Tarjan's SCCs for a fair cycle that avoids the terminal states (theory §9.5). That replaces
+`AG EF terminal`, which stays as the single-machine check.
+
+**Out of scope, unchanged:** real time (timed automata), unbounded data in control flow
+(data-independence arguments), and a Dolev–Yao attacker.
