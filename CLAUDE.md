@@ -14,8 +14,9 @@ output**. Treat it as the spec for what the generator must emit.
 
 ```sh
 cargo test -p toy-handshake --features model                 # unit + differential + model check
-cargo test -p toy-handshake --features model,planted-bug     # shows the planted bug is caught
-cargo run  -p toy-handshake --example check --features model[,planted-bug]   # readable report
+cargo test -p toy-handshake --features model,planted-bug     # spec bug: caught by model checking
+cargo test -p toy-handshake --features model,planted-drift   # code/model drift: caught by the differential test
+cargo run  -p toy-handshake --example check --features model[,planted-bug|,planted-drift]   # readable report
 cargo clippy --all-targets --features toy-handshake/model -- -D warnings
 cargo fmt --all --check
 ```
