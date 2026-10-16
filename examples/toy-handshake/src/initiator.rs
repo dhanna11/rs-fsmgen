@@ -26,11 +26,31 @@
 //! Every item below is either used by the runtime, by the model, or by both.
 //! The items shared with the model ([`Control`], [`EventKind`], [`Row`],
 //! [`Last`], [`Vars`]) are the contract that keeps the two from drifting.
+//!
+//! # Formal reading (see `docs/theory.md`)
+//!
+//! The table defines an extended finite-state machine (EFSM)
+//! `M = (Q, Σ, Λ, Γ, D, R, q₀, d₀, F)`:
+//!
+//! | symbol | meaning                          | here                              |
+//! |--------|----------------------------------|-----------------------------------|
+//! | `Q`    | control states                   | [`Control`]                       |
+//! | `Σ`    | input alphabet (payloads erased) | [`EventKind`]                     |
+//! | `Λ`    | output alphabet                  | `InitiatorOut`                    |
+//! | `Γ`    | opaque guard names               | `{resp_valid}` ([`Hooks`])        |
+//! | `D`    | var domain                       | `{0..=MAX_TRIES}` ([`Vars`])      |
+//! | `R`    | **ordered** list of rows         | [`Row`], r0..r7                   |
+//! | `q₀,d₀`| initial configuration            | `Idle`, `tries = 0`               |
+//! | `F`    | terminal states                  | `{Done, Failed}`                  |
+//!
+//! [`Machine::step`] is the transition function `δ` (first-match over `R`)
+//! together with the output function `λ` (whatever the action returns).
 
 use super::types::{Done, InitiatorOut, Resp, Waiting};
 use super::MAX_TRIES;
 
-/// The data-free part of [`State`]. This is what the model checker sees.
+/// `Q`: the data-free part of [`State`]. This is what the model checker sees.
+/// `q₀ = Idle`, `F = {Done, Failed}` (theory §1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control {
     Idle,
@@ -85,7 +105,8 @@ pub enum Event {
     Timeout,
 }
 
-/// The data-free part of [`Event`].
+/// `Σ`: the data-free part of [`Event`]. Erasing payloads is the first
+/// abstraction step: `Resp(Resp { .. })` becomes the letter `Resp` (theory §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum EventKind {
     Start,
@@ -103,7 +124,8 @@ impl Event {
     }
 }
 
-/// One variant per table row, in table order.
+/// `R`: one variant per table row, in table order. Order is priority: for a
+/// given (state, event), the first row whose guard holds fires (theory §2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Row {
     /// r0: `Idle + Start / send_req { tries = 0 } = Waiting`
@@ -126,6 +148,11 @@ pub enum Row {
 
 /// What the most recent `step()` did. Kept by the runtime (for tracing) and
 /// by the model (so properties can talk about how a state was entered).
+///
+/// In the model this is a *history variable* (Abadi & Lamport 1991): it
+/// records part of the past so a state predicate can express a property of
+/// the last transition. It costs state space: 10 configurations become 20
+/// (theory §5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Last {
     Init,
@@ -135,7 +162,9 @@ pub enum Last {
     NoRow(EventKind),
 }
 
-/// Model-visible variables.
+/// `d ∈ D`: the model-visible variables. The declared domain `D` is smaller
+/// than the Rust type (`u8` allows 0..=255); [`Vars::in_range`] is the
+/// predicate `d ∈ D`, checked as an invariant by the model (theory §7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Vars {
     pub tries: u8,
@@ -183,6 +212,10 @@ impl Vars {
     }
 }
 
+/// Everything the model does *not* see: opaque guards (`Γ`) and the data side
+/// of actions. The model replaces each guard with an unconstrained boolean;
+/// that is an existential abstraction (theory §3).
+///
 /// Implemented by hand. One method per unique guard and action in the table;
 /// each signature comes from the source, event, and target types of the
 /// rows that use it. Unit-typed states and events are left out of the
@@ -247,6 +280,18 @@ impl Machine {
     ///
     /// If a hook panics, the panic propagates, `vars` is unchanged, and the
     /// state is left as [`State::Poisoned`].
+    ///
+    /// Formally (theory §2): for configuration `(q, d)`, letter `σ`, and the
+    /// guard values `γ ⊆ Γ` the hooks happen to return,
+    ///
+    /// ```text
+    /// δ(q, d, σ, γ) = (q'ᵢ, uᵢ(d))   where i = min { i | qᵢ = q ∧ σᵢ = σ ∧ φᵢ(d, γ) }
+    ///               = (q, d)         if no such i, or q ∈ F       (Last::NoRow)
+    /// ```
+    ///
+    /// `q'ᵢ` is row i's target (`= _` means `q`), `uᵢ` its var update,
+    /// `φᵢ` its guard. The step is atomic: either `(q', d')` is committed, or
+    /// the machine ends up `Poisoned` with `d` untouched (theory §6).
     pub fn step<H: Hooks>(&mut self, h: &mut H, ev: Event) -> Result<Vec<InitiatorOut>, Poisoned> {
         let kind = ev.kind();
         let state = core::mem::replace(&mut self.state, State::Poisoned);

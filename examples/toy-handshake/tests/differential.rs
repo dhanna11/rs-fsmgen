@@ -5,6 +5,21 @@
 //! This is the check that the generated model means the same thing as the
 //! generated code. Model checking only shows that the model satisfies its
 //! properties.
+//!
+//! Formally (theory §5): let `α(machine) = (control, vars, last)` be the
+//! abstraction function (Hoare 1972) and `β(event, γ) = Action` the map from
+//! a concrete event plus the guard values the hooks returned. The test checks
+//! that this square commutes on every step it tries:
+//!
+//! ```text
+//!   machine ──step(event)──▶ machine'
+//!      │α                       │α
+//!      ▼                        ▼
+//!   s ─────model.step(β)────▶  s'
+//! ```
+//!
+//! It is differential testing (McKeeman 1998) of a refinement claim. It
+//! samples; it does not prove.
 
 use stateright::Model;
 use toy_handshake::initiator::{Event, EventKind, Hooks, Last, Machine};

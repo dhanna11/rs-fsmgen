@@ -9,6 +9,12 @@
 //! state (`AG EF terminal`). On a finite graph, that means every run reaches a
 //! terminal state under strong fairness: a step that is enabled infinitely
 //! often is eventually taken.
+//!
+//! Algorithm (theory §4.3): `EF F` is the least fixpoint
+//! `μZ. F ∨ EX Z` (Tarski 1955; Emerson & Clarke). Computing it is backward
+//! BFS from `F` over reversed edges, `O(|S| + |→|)`. The property holds
+//! iff `Reach ⊆ EF F`. A failure is reported as the shortest path from `S₀`
+//! to a state outside `EF F`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;

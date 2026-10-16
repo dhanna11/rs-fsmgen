@@ -10,6 +10,18 @@
 //!   calls is fixed at `false`, so each distinct step appears once.
 //! - Var guards and updates call the same `Vars` methods as `Machine::step`.
 //! - Terminal states have no actions.
+//!
+//! # Formal reading (see `docs/theory.md` §3–4)
+//!
+//! This is a Kripke structure `K = (S, S₀, →)` with
+//! `S = Q × D × Last`, `S₀ = {(Idle, 0, Init)}`, and
+//! `(q, d, _) → step((q, d, _), (σ, γ))` for every action `(σ, γ)`.
+//! Fixing `γ` makes the code deterministic; leaving it free makes `K`
+//! nondeterministic. Every run of the real code is a path in `K`, so `K`
+//! *simulates* the code (Milner 1971). Universal properties (`AG p`) that
+//! hold in `K` therefore hold in the code (Clarke, Grumberg & Long 1994).
+//! Counterexamples can be spurious (a `resp_valid = true` the real guard
+//! would never return); refining that is CEGAR (Clarke et al. 2000).
 
 use stateright::{Model, Property};
 
@@ -22,7 +34,9 @@ pub struct ModelState {
     pub last: Last,
 }
 
-/// An event plus the value of every opaque guard it could hit.
+/// `(σ, γ) ∈ Σ × 2^Γ`, cut down to the guards that the current
+/// (state, event) group actually consults. An event plus the value of every
+/// opaque guard it could hit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
     Start,
@@ -50,7 +64,9 @@ impl InitiatorModel {
         last: Last::Init,
     };
 
-    /// The transition relation. Same arms, same order as `Machine::step`.
+    /// The transition relation `→`. Same arms, same order as `Machine::step`:
+    /// literally the same `δ` with `γ` taken from the action instead of from
+    /// hooks.
     pub fn step(s: &ModelState, a: Action) -> ModelState {
         let mut vars = s.vars;
         let (control, last) = match (s.control, a) {
@@ -137,6 +153,11 @@ impl Model for InitiatorModel {
 
 /// Properties every generated model gets. Termination is not here: see
 /// `liveness.rs` for why.
+///
+/// In CTL (Clarke & Emerson 1981): `Property::always(p)` checks `AG p`
+/// (safety: p holds in every reachable state), `Property::sometimes(p)`
+/// checks `EF p` (reachability). BFS gives a shortest witness or
+/// counterexample, up to the quirk noted in decisions D-002.
 pub fn builtin_properties() -> Vec<Property<InitiatorModel>> {
     vec![
         Property::always("no deadlock", |m: &InitiatorModel, s: &ModelState| {
