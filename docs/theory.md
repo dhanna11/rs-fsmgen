@@ -10,6 +10,8 @@ this commit. The references at the end are the original papers and standard text
 2. §3–4 with `examples/toy-handshake/src/model.rs` and `src/liveness.rs`: what we *check*.
 3. §5 with `examples/toy-handshake/tests/differential.rs`: why the check is about the *code*.
 4. §7–8: the planted bug, and the list of things to fix.
+5. §9 with Lynch's *Distributed Algorithms*, ch. 8: how one machine becomes a composed system
+   (Phase 3).
 
 ---
 
@@ -378,6 +380,189 @@ Ordered roughly by value-for-effort.
 
 ---
 
+## §9. Beyond one machine: I/O automata
+
+§1–8 cover a single endpoint. Phase 3 composes an initiator, a responder and a faulty network. The
+formalism for that is the **input/output automaton** (Lynch & Tuttle 1987; tutorial 1989; Lynch
+1996, ch. 8).
+
+### 9.1 The ladder from Mealy to here
+
+| # | Step | Flattens back to a finite Mealy machine? |
+|---|---|---|
+| 1 | Output words, `λ : Q × Σ → Λ*` | yes: the finitely many words used form the output alphabet |
+| 2 | Vars, guards, updates (EFSM) | yes: states `Q × D`, `D` finite |
+| 3 | Opaque guards | yes: inputs `Σ × 2^Γ` |
+| 4 | Ordered rows, first match | yes: it only resolves overlap |
+| 5 | Completion (`NoRow`), terminal states | yes: self-loops |
+| 6 | **Composition over channels** (I/O automata) | **only if channels are bounded** |
+
+Steps 1–5 make the description shorter without making the machine more expressive. Step 6 is the
+only one that can leave finite state. Two communicating finite-state machines joined by unbounded
+FIFO channels can simulate a Turing machine, so most questions about them are undecidable (Brand &
+Zafiropulo 1983). So the plan's "bounded in-flight messages" is what keeps Phase 3 decidable, not a
+performance tweak. Lossy channels are the friendly exception: safety stays decidable for them even
+unbounded (Abdulla & Jonsson 1996).
+
+### 9.2 The definition
+
+Following Lynch & Tuttle (1989, §3), an I/O automaton `A` has:
+
+```text
+sig(A)    = (in, out, int)      disjoint sets of input, output and internal actions
+                                ext = in ∪ out  (visible)    local = out ∪ int  (A controls these)
+states(A)                       a set of states, possibly infinite
+start(A)  ⊆ states(A)           non-empty
+steps(A)  ⊆ states × acts × states
+part(A)                         a partition of local into classes ("components")
+```
+
+with one axiom:
+
+> **Input-enabled.** For every state `s` and every input `π`, some step `(s, π, s')` exists.
+> "The automaton is unable to block its input."
+
+The ideas, in order:
+
+- **Who controls what.** An automaton decides *when* its outputs and internal actions happen.
+  Its environment decides when inputs happen. Each action is controlled by at most one component.
+  That's the other axiom the paper calls fundamental.
+- **Executions and behaviours.** An execution is `s₀ π₁ s₁ π₂ …`. Its *behaviour* is the
+  subsequence of external actions. The semantics is trace semantics: a *problem* is a set of
+  allowed behaviours, and `A` *solves* it if every finite or fair behaviour of `A` is in the set.
+- **Composition** `A₁ · … · Aₙ` requires *compatibility*: no two components share an output,
+  and one component's internal actions aren't actions of any other. Composition is then the
+  product of states, where:
+  - **Shared actions synchronise.** When `π` happens, every component that has `π` in its
+    signature takes a `π`-step at the same time. A shared action is always one component's output
+    and the others' inputs, so it's a broadcast that can't be refused, because inputs are enabled.
+  - **Non-shared actions interleave.** Everyone else stays put.
+  - The composite's outputs are the union of the outputs. Its inputs are the inputs nobody
+    outputs. The composite is input-enabled automatically.
+- **Hiding.** `hide Φ A` turns some outputs into internal actions. That's how you seal the
+  initiator–network–responder messages inside the system.
+- **Fairness** (1989, §3.3). An execution is fair if, for every class `C` of `part(A)`:
+  1. if it's finite, no action of `C` is enabled in the final state;
+  2. if it's infinite, it contains infinitely many `C`-events or infinitely many states where `C`
+     is disabled.
+
+  That is **weak fairness per component**: a component that stays enabled eventually acts. Inputs
+  are never subject to fairness; they belong to someone else.
+- **Compositionality.** Projecting an execution of a composite onto a component gives an execution
+  of that component (1989, Proposition 1). With the converses, properties of the parts give
+  properties of the whole.
+
+**Contrast with CSP** (Hoare 1978). In CSP, a communication happens only when *both* sides are
+ready, so a process can refuse a message by not offering it. In an I/O automaton a receiver can
+never refuse. For network protocols that's the honest model: a host can't stop packets arriving,
+only decide what to do with them.
+
+### 9.3 Our machine as an I/O automaton
+
+| I/O automaton | fsmgen |
+|---|---|
+| input actions | `Event`: `Start`, `Resp(m)`, `Timeout` |
+| output actions | `InitiatorOut`: `Send(m)`, `Established`, `Failed` |
+| input-enabled | `total: true` plus `NoRow`: every event is accepted in every state |
+| states | `(q, d, data)` plus an **outbox** (see below) |
+| classes of `part` | e.g. `{send}` and `{established, failed}` |
+
+One mismatch matters. `Machine::step` is Mealy-style: one call takes an input *and* emits its
+outputs atomically. In an I/O automaton, outputs are separate actions the automaton fires later,
+on its own schedule. The standard encoding:
+
+```text
+input  recv(m):   s.q, s.d := δ(...);  s.outbox := s.outbox ++ λ(...)     (always enabled)
+output send(m):   pre: head(s.outbox) = m;  eff: s.outbox := tail(s.outbox)
+```
+
+The generated code doesn't change: the driver loop is the thing that drains the outbox. But the
+Phase 3 *model* should keep the outbox explicit, so that "output computed but not yet sent" is a
+state the checker can see.
+
+### 9.4 The Phase 3 system
+
+```text
+hide {send_*, recv_*} ( Initiator · Chan(I→R) · Responder · Chan(R→I) · Timer_I · Timer_R )
+```
+
+- **A channel is just another I/O automaton.** Its input is `send(m)` and its output is
+  `recv(m)`. Network faults are choices of channel automaton:
+  - **Reordering:** the state is a multiset, not a queue.
+  - **Loss:** an internal action `drop(m)`.
+  - **Duplication:** `recv(m)` doesn't remove `m`.
+  - **A bound `k`:** input-enabledness forces a decision when the channel is full. It must accept
+    `send` anyway, so a full channel drops the message, which is itself a kind of loss.
+- **Timeouts become a timer automaton's output.** It's enabled while its owner is waiting. Under
+  weak fairness, an enabled timer eventually fires.
+- **stateright already implements this composition.** `stateright::actor::ActorModel` has the
+  channel variants `Network::{UnorderedDuplicating, UnorderedNonDuplicating, Ordered}`,
+  `LossyNetwork::{Yes, No}`, and the actions `Deliver`, `Drop` and `Timeout` (stateright 0.31,
+  `src/actor/{network,model}.rs`). Phase 3 can generate actors rather than writing its own
+  channels.
+
+### 9.5 Fairness, revisited
+
+This fixes the caveat in §4.3. There, guard outcomes such as `resp_valid` were nondeterministic
+choices, and "termination under strong fairness" quietly assumed `true` would eventually be
+chosen. In the composed system, guard outcomes are no longer choices: they're *determined by the
+message* the channel delivers. Fairness is then owed only to *components*:
+- the timer eventually fires;
+- the channel eventually delivers, if it is fair-lossy;
+- each endpoint eventually sends what's in its outbox.
+
+That is a much more honest assumption.
+
+The check changes accordingly. "Every fair run terminates" fails in one of two ways:
+
+- **An infinite fair run.** Some reachable *non-trivial* strongly connected component `S` (one that
+  contains a cycle) avoids `F` and, for every class `C`, either contains a `C`-edge or contains a
+  state where `C` is disabled. A cycle through `S` that covers those witnesses is a fair run that
+  never terminates.
+- **A finite fair run.** The run stops in a non-terminal state where no class is enabled. The
+  "no deadlock" property already catches this.
+
+Finding the first case is a linear-time pass over Tarjan's SCCs (Tarjan 1972). In Phase 3 it
+replaces `AG EF F` in `src/liveness.rs`.
+
+### 9.6 Extensions we are *not* taking
+
+- **Real time.** `Timeout` stays an untimed input. That's sound for safety, but it can't express
+  deadlines. That would need timed automata (Alur & Dill 1994) or Lynch's timed I/O automata.
+- **Unbounded data in control flow.** IKE message IDs and SPIs live inside opaque guards. If one
+  ever drives control flow, use a data-independence argument (Wolper 1986): a protocol that only
+  compares such values for equality needs only a few distinct values in the model.
+- **A malicious network.** Loss, duplication and reordering make a careless network. One that
+  forges and injects messages is the Dolev–Yao attacker (Dolev & Yao 1983), which is
+  cryptographic-protocol territory and a non-goal in the plan.
+- **Hierarchy, stacks, probability.** Statecharts, pushdown automata, Markov chains: none needed.
+
+### 9.7 Reading plan (Lynch, *Distributed Algorithms*, 1996)
+
+**Warm-up (free, 28 pages):** Lynch & Tuttle, "An Introduction to Input/Output Automata" (1989).
+Its §2–3 cover everything in §9.2 above, using a candy-machine example. Read this first.
+
+**Chapter 8, "Modelling II: Asynchronous System Model".** Read all of it before Phase 3.
+
+| § | Title | Read it for |
+|---|---|---|
+| 8.1 | I/O Automata | the definition, and input-enabledness ↔ `total: true` |
+| 8.2 | Operations on Automata | composition and hiding: how §9.4's system is built |
+| 8.3 | Fairness | the weak, per-component fairness of §9.5 |
+| 8.4 | Inputs and Outputs for Problems | specifications as sets of behaviours: how to state Phase 3 properties |
+| 8.5 | Properties and Proof Methods | invariants and simulation proofs, the formal side of our §5 refinement check |
+
+**Chapter 22, "Data Link Protocols".** Read it before writing the network model. Reliable delivery
+over channels that lose, duplicate and reorder messages is IKE retransmission's problem exactly.
+§22.1 states the problem; §22.2 is Stenning's protocol. The plan's planted bug "responder doesn't
+resend its cached reply on a duplicate" is a data-link bug.
+
+**Skip for now:**
+- Chapters 1–7: the synchronous model.
+- Chapter 23, "Partially Synchronous System Models": only if timeouts need real time bounds.
+
+---
+
 ## References
 
 Every entry below was checked against the publisher's record (Crossref DOI metadata, publisher
@@ -519,6 +704,33 @@ subscription.
 - E. M. Clarke, O. Grumberg, S. Jha, Y. Lu, H. Veith. "Counterexample-Guided Abstraction
   Refinement." *CAV* 2000, LNCS 1855, Springer, pp. 154–169.
   [doi](https://doi.org/10.1007/10722167_15)
+
+### Composition and I/O automata
+
+- N. A. Lynch, M. R. Tuttle. "Hierarchical Correctness Proofs for Distributed Algorithms."
+  *PODC* 1987, pp. 137–151. [doi](https://doi.org/10.1145/41840.41852). Introduces I/O
+  automata.
+- N. A. Lynch, M. R. Tuttle. "An Introduction to Input/Output Automata." *CWI Quarterly*
+  2(3):219–246, 1989. Also MIT/LCS/TM-373.
+  [free (MIT)](https://groups.csail.mit.edu/tds/papers/Lynch/CWI89.pdf). The best starting point.
+- N. A. Lynch. *Distributed Algorithms*. Morgan Kaufmann, 1996. ISBN 978-1-55860-348-6. Ch. 8
+  (I/O automata), ch. 22 (data link protocols).
+  [book](https://www.elsevier.com/books/distributed-algorithms/lynch/978-1-55860-348-6) ·
+  [Amazon](https://www.amazon.com/dp/1558603484)
+- C. A. R. Hoare. "Communicating Sequential Processes." *CACM* 21(8):666–677, 1978.
+  [doi](https://doi.org/10.1145/359576.359585)
+- D. Brand, P. Zafiropulo. "On Communicating Finite-State Machines." *JACM* 30(2):323–342, 1983.
+  [doi](https://doi.org/10.1145/322374.322380)
+- P. A. Abdulla, B. Jonsson. "Verifying Programs with Unreliable Channels." *Information and
+  Computation* 127(2):91–101, 1996. [doi](https://doi.org/10.1006/inco.1996.0053)
+- R. Alur, D. L. Dill. "A Theory of Timed Automata." *Theoretical Computer Science*
+  126(2):183–235, 1994. [doi](https://doi.org/10.1016/0304-3975(94)90010-8)
+- P. Wolper. "Expressing Interesting Properties of Programs in Propositional Temporal Logic."
+  *POPL* 1986, pp. 184–193. [doi](https://doi.org/10.1145/512644.512661)
+- D. Dolev, A. C. Yao. "On the Security of Public Key Protocols." *IEEE Trans. Information
+  Theory* 29(2):198–208, 1983. [doi](https://doi.org/10.1109/TIT.1983.1056650)
+- stateright actor model (Phase 3 target):
+  [docs.rs, stateright 0.31 `actor`](https://docs.rs/stateright/0.31.0/stateright/actor/index.html)
 
 ### Testing
 
