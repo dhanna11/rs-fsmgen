@@ -48,7 +48,7 @@ outputs from the action that fired. Two small differences:
 ### 1.3 Adding data: extended finite-state machines (EFSMs)
 
 Counting retries in pure control states would mean `Waiting0, Waiting1, Waiting2, …`. EFSMs
-(Cheng & Krishnakumar 1993; Lee & Yannakakis 1996 §VI) add variables, plus guards and updates over
+(Cheng & Krishnakumar 1993; Lee & Yannakakis 1996) add variables, plus guards and updates over
 them. Our variant also has opaque guards, decided by code the generator never sees. The full
 signature:
 
@@ -165,8 +165,9 @@ explores is just *every possible input*, including every possible answer from ev
 
 Let `α(machine) = (control, vars, last)`. For every concrete step `c —e→ c'`, where the hooks
 returned guard values `γ`, the model has a step `α(c) —(kind(e), γ)→ α(c')`. That is, `K`
-*simulates* the code (Milner 1971). Simulation preserves universal temporal properties, ∀CTL* /
-ACTL* (Clarke, Grumberg & Long 1994). In particular:
+*simulates* the code (Milner 1971). Abstractions of this kind preserve universal temporal
+properties, ∀CTL* / ACTL* (Clarke, Grumberg & Long 1994, Thm. 5.6). Grumberg & Long (1994) state
+the same preservation result for the simulation preorder in general. In particular:
 
 - `AG p` in `K` ⇒ `AG p` in the code. **These results transfer.** ("vars in range", "Done only
   via resp_valid", and so on.)
@@ -196,9 +197,10 @@ network and peer.
 ### 4.1 Safety and liveness
 
 Lamport (1977) named the two classes informally: *safety* means "nothing bad happens" and
-*liveness* means "something good eventually happens". Alpern & Schneider (1985) made them precise.
-A safety property is violated by a finite prefix. Every property is the intersection of a safety
-property and a liveness property. In temporal logic (Pnueli 1977 for linear time; Clarke & Emerson
+*liveness* means "something good eventually happens". Alpern & Schneider (1985) gave the formal
+definition of liveness and a topological characterization of both: a safety property is violated
+by a finite prefix, and every property is the intersection of a safety property and a liveness
+property. In temporal logic (Pnueli 1977 for linear time; Clarke & Emerson
 1981 and Queille & Sifakis 1982 for branching time and model checking):
 
 | stateright | logic | class | meaning |
@@ -229,7 +231,7 @@ reachable. `AG EF` is a branching-time property and has no LTL equivalent (Lampo
 this split between linear and branching time). It is computed as a least fixpoint:
 
 ```text
-EF F = μZ. F ∨ EX Z          (Tarski 1955 gives the fixpoint; Emerson & Clarke the CTL reading)
+EF F = μZ. F ∨ EX Z          (Tarski 1955 gives the fixpoint; Emerson & Clarke 1980 the CTL reading)
 ```
 
 That's backward BFS from `F` over reversed edges (`src/liveness.rs:69`), `O(|S| + |→|)`, followed
@@ -297,8 +299,10 @@ for an action it never explores.
 ### 5.3 `Last` is a history variable
 
 Some properties are about *how* a state was entered: "Done only via r4". A state predicate can't
-see the past, so the model carries `last: Last` (`src/initiator.rs:157`). Abadi & Lamport (1991)
-call this a *history variable*: it adds information about the past without changing behaviour.
+see the past, so the model carries `last: Last` (`src/initiator.rs:157`). This is a *history
+variable*: an auxiliary variable that records the past without changing behaviour. Auxiliary
+variables come from Owicki & Gries (1976). Abadi & Lamport (1991) show history variables, together
+with their new *prophecy* variables, are enough to construct refinement mappings.
 The cost is concrete. The 10 reachable configurations become 20 model states (run
 `--example check`).
 
@@ -360,8 +364,7 @@ Ordered roughly by value-for-effort.
    (`|→|` = a few dozen here).
 3. **Termination fairness over guard outcomes** (§4.3 caveat). Check "terminates assuming fairness
    only over *events*, with guard outcomes chosen adversarially". That's a two-player reachability
-   game: the attractor of `F` (Emerson & Jutla 1991; Grädel, Thomas & Wilke 2002), still linear
-   time.
+   game: the attractor of `F` (Mazala 2002, §2.5.1; Zielonka 1998), still linear time.
 4. **Panics aren't modelled.** Either add an abstract `Poisoned` sink reachable from every action
    (then "no deadlock" must exempt it), or have Kani prove the generated code panic-free and state
    that hooks must not panic.
@@ -377,49 +380,154 @@ Ordered roughly by value-for-effort.
 
 ## References
 
-**Automata and machines**
-- M. O. Rabin, D. Scott. "Finite Automata and Their Decision Problems." *IBM J. Res. Dev.* 3(2):114–125, 1959.
-- G. H. Mealy. "A Method for Synthesizing Sequential Circuits." *Bell System Technical Journal* 34(5):1045–1079, 1955.
-- E. F. Moore. "Gedanken-Experiments on Sequential Machines." In *Automata Studies*, Annals of Mathematics Studies 34, Princeton, 1956, pp. 129–153.
-- M. Sipser. *Introduction to the Theory of Computation*, 3rd ed. Cengage, 2012. Ch. 1.
-- J. E. Hopcroft, R. Motwani, J. D. Ullman. *Introduction to Automata Theory, Languages, and Computation*, 3rd ed. Addison-Wesley, 2006. Ch. 2.
-- K.-T. Cheng, A. S. Krishnakumar. "Automatic Functional Test Generation Using the Extended Finite State Machine Model." *DAC* 1993.
-- D. Lee, M. Yannakakis. "Principles and Methods of Testing Finite State Machines — A Survey." *Proc. IEEE* 84(8):1090–1123, 1996.
-- D. Harel. "Statecharts: A Visual Formalism for Complex Systems." *Science of Computer Programming* 8(3):231–274, 1987. (Source of the `event [guard] / action` notation; hierarchy is a v1 non-goal.)
+Every entry below was checked against the publisher's record (Crossref DOI metadata, publisher
+pages, or library catalogues by ISBN) in October 2026. The links are:
 
-**Guarded commands and requirements tables**
-- E. W. Dijkstra. "Guarded Commands, Nondeterminacy and Formal Derivation of Programs." *CACM* 18(8):453–457, 1975.
-- M. P. E. Heimdahl, N. G. Leveson. "Completeness and Consistency in Hierarchical State-Based Requirements." *IEEE TSE* 22(6):363–377, 1996.
+- **doi**: the publisher's copy.
+- **free**: a legitimate free copy: the author's own site, the publisher's open archive, or an
+  official archive. Where it is a preprint or tech-report version rather than the published text, the
+  entry says so. No shadow-library links.
+- **book**: the publisher's page and Amazon (by ISBN-10).
 
-**Temporal logic and model checking**
-- S. A. Kripke. "Semantical Considerations on Modal Logic." *Acta Philosophica Fennica* 16:83–94, 1963.
-- A. Pnueli. "The Temporal Logic of Programs." *FOCS* 1977, pp. 46–57.
-- E. M. Clarke, E. A. Emerson. "Design and Synthesis of Synchronization Skeletons Using Branching Time Temporal Logic." *Logic of Programs* 1981, LNCS 131.
-- J.-P. Queille, J. Sifakis. "Specification and Verification of Concurrent Systems in CESAR." *Int. Symp. on Programming* 1982, LNCS 137.
-- L. Lamport. "Proving the Correctness of Multiprocess Programs." *IEEE TSE* SE-3(2):125–143, 1977.
-- L. Lamport. "'Sometime' is Sometimes 'Not Never'." *POPL* 1980.
-- B. Alpern, F. B. Schneider. "Defining Liveness." *Information Processing Letters* 21(4):181–185, 1985.
-- C. Baier, J.-P. Katoen. *Principles of Model Checking*. MIT Press, 2008. (The best single textbook for §3–4.)
-- E. M. Clarke, O. Grumberg, D. Peled. *Model Checking*. MIT Press, 1999.
-- C. Courcoubetis, M. Y. Vardi, P. Wolper, M. Yannakakis. "Memory-Efficient Algorithms for the Verification of Temporal Properties." *Formal Methods in System Design* 1(2/3):275–288, 1992.
-- R. E. Tarjan. "Depth-First Search and Linear Graph Algorithms." *SIAM J. Computing* 1(2):146–160, 1972.
-- A. Tarski. "A Lattice-Theoretical Fixpoint Theorem and Its Applications." *Pacific J. Math.* 5(2):285–309, 1955.
+The ACM Digital Library is now open access, so the `10.1145/…` DOIs should open without a
+subscription.
 
-**Fairness and games**
-- N. Francez. *Fairness*. Springer, 1986.
-- D. Lehmann, A. Pnueli, J. Stavi. "Impartiality, Justice and Fairness: The Ethics of Concurrent Termination." *ICALP* 1981, LNCS 115.
-- E. A. Emerson, C. S. Jutla. "Tree Automata, Mu-Calculus and Determinacy." *FOCS* 1991.
-- E. Grädel, W. Thomas, T. Wilke (eds.). *Automata, Logics, and Infinite Games*. LNCS 2500, Springer, 2002.
+### Start here (books)
 
-**Abstraction and refinement**
-- R. Milner. "An Algebraic Definition of Simulation Between Programs." *IJCAI* 1971.
-- C. A. R. Hoare. "Proof of Correctness of Data Representations." *Acta Informatica* 1(4):271–281, 1972.
-- M. Abadi, L. Lamport. "The Existence of Refinement Mappings." *Theoretical Computer Science* 82(2):253–284, 1991.
-- E. M. Clarke, O. Grumberg, D. E. Long. "Model Checking and Abstraction." *ACM TOPLAS* 16(5):1512–1542, 1994.
-- E. M. Clarke, O. Grumberg, S. Jha, Y. Lu, H. Veith. "Counterexample-Guided Abstraction Refinement." *CAV* 2000, LNCS 1855.
+- C. Baier, J.-P. Katoen. *Principles of Model Checking*. MIT Press, 2008. ISBN 978-0-262-02649-9.
+  The best single textbook for §3–4.
+  [book](https://mitpress.mit.edu/9780262026499/principles-of-model-checking/) ·
+  [Amazon](https://www.amazon.com/dp/026202649X)
+- E. M. Clarke, O. Grumberg, D. Peled. *Model Checking*. MIT Press, 1999. ISBN 978-0-262-03270-4.
+  [Amazon](https://www.amazon.com/dp/0262032708).
+  2nd ed.: E. M. Clarke, O. Grumberg, D. Kroening, D. Peled, H. Veith, MIT Press, 2018,
+  ISBN 978-0-262-03883-6. [book](https://mitpress.mit.edu/9780262038836/model-checking/) ·
+  [Amazon](https://www.amazon.com/dp/0262038838)
+- M. Sipser. *Introduction to the Theory of Computation*, 3rd ed. Cengage, 2013 (released 2012).
+  ISBN 978-1-133-18779-0. Ch. 1, Def. 1.5: the 5-tuple.
+  [book](https://www.cengage.com/c/introduction-to-the-theory-of-computation-3e-sipser/9781133187790/) ·
+  [Amazon](https://www.amazon.com/dp/113318779X)
+- J. E. Hopcroft, R. Motwani, J. D. Ullman. *Introduction to Automata Theory, Languages, and
+  Computation*, 3rd ed. Pearson/Addison-Wesley, 2006 (© 2007). ISBN 978-0-321-45536-9. Ch. 2.
+  [book](https://www.pearson.com/en-us/subject-catalog/p/introduction-to-automata-theory-languages-and-computation/P200000003517/9780321455369) ·
+  [Amazon](https://www.amazon.com/dp/0321455363)
 
-**Testing**
-- W. M. McKeeman. "Differential Testing for Software." *Digital Technical Journal* 10(1):100–107, 1998.
+### Automata and machines
 
-**For later phases**
-- L. Lamport. *Specifying Systems: The TLA+ Language and Tools for Hardware and Software Engineers*. Addison-Wesley, 2002. (Phase 6.)
+- M. O. Rabin, D. Scott. "Finite Automata and Their Decision Problems." *IBM J. Res. Dev.*
+  3(2):114–125, 1959. [doi](https://doi.org/10.1147/rd.32.0114)
+- G. H. Mealy. "A Method for Synthesizing Sequential Circuits." *Bell System Technical Journal*
+  34(5):1045–1079, 1955. [doi](https://doi.org/10.1002/j.1538-7305.1955.tb03788.x) ·
+  [free (Internet Archive BSTJ collection)](https://archive.org/details/bstj34-5-1045)
+- E. F. Moore. "Gedanken-Experiments on Sequential Machines." In C. E. Shannon, J. McCarthy (eds.),
+  *Automata Studies*, Annals of Mathematics Studies 34, Princeton University Press, 1956,
+  pp. 129–153. [doi](https://doi.org/10.1515/9781400882618-006)
+- K.-T. Cheng, A. S. Krishnakumar. "Automatic Functional Test Generation Using the Extended Finite
+  State Machine Model." *Proc. 30th Design Automation Conference (DAC)*, 1993, pp. 86–91.
+  [doi](https://doi.org/10.1145/157485.164585)
+- D. Lee, M. Yannakakis. "Principles and Methods of Testing Finite State Machines — A Survey."
+  *Proc. IEEE* 84(8):1090–1123, 1996. [doi](https://doi.org/10.1109/5.533956)
+- D. Harel. "Statecharts: A Visual Formalism for Complex Systems." *Science of Computer
+  Programming* 8(3):231–274, 1987. [doi](https://doi.org/10.1016/0167-6423(87)90035-9) (free in
+  Elsevier's open archive). Harel labels transitions `α(P)/S`: event, parenthesised condition,
+  action (§5). The bracketed `e[c]/a` spelling came later, in STATEMATE and UML. Hierarchy, the
+  paper's main subject, is a v1 non-goal.
+
+### Guarded commands and requirements tables
+
+- E. W. Dijkstra. "Guarded Commands, Nondeterminacy and Formal Derivation of Programs." *CACM*
+  18(8):453–457, 1975. [doi](https://doi.org/10.1145/360933.360975) ·
+  [free (EWD 472)](https://www.cs.utexas.edu/~EWD/ewd04xx/EWD472.PDF)
+- M. P. E. Heimdahl, N. G. Leveson. "Completeness and Consistency in Hierarchical State-Based
+  Requirements." *IEEE TSE* 22(6):363–377, 1996. [doi](https://doi.org/10.1109/32.508311).
+  It analyses "some aspects of" completeness and consistency, validated on the TCAS II
+  specification, which is written in RSML.
+
+### Temporal logic and model checking
+
+- S. A. Kripke. "Semantical Considerations on Modal Logic." *Acta Philosophica Fennica* 16:83–94,
+  1963. No DOI. (One review in *J. Symbolic Logic* gives the title as "…for modal logics".)
+- A. Pnueli. "The Temporal Logic of Programs." *Proc. 18th FOCS*, 1977, pp. 46–57.
+  [doi](https://doi.org/10.1109/SFCS.1977.32)
+- E. A. Emerson, E. M. Clarke. "Characterizing Correctness Properties of Parallel Programs Using
+  Fixpoints." *ICALP* 1980, LNCS, Springer, pp. 169–181.
+  [doi](https://doi.org/10.1007/3-540-10003-2_69)
+- E. M. Clarke, E. A. Emerson. "Design and Synthesis of Synchronization Skeletons Using Branching
+  Time Temporal Logic." In D. Kozen (ed.), *Logics of Programs* (workshop, May 1981), LNCS 131,
+  Springer, 1982, pp. 52–71. [doi](https://doi.org/10.1007/BFb0025774)
+- J.-P. Queille, J. Sifakis. "Specification and Verification of Concurrent Systems in CESAR."
+  *5th Int. Symp. on Programming*, LNCS 137, Springer, 1982, pp. 337–351.
+  [doi](https://doi.org/10.1007/3-540-11494-7_22)
+- L. Lamport. "Proving the Correctness of Multiprocess Programs." *IEEE TSE* SE-3(2):125–143,
+  1977. [doi](https://doi.org/10.1109/TSE.1977.229904) ·
+  [free (author)](https://lamport.azurewebsites.net/pubs/proving.pdf). This paper introduced the
+  terms "safety" and "liveness".
+- L. Lamport. "'Sometime' is Sometimes 'Not Never': On the Temporal Logic of Programs." *POPL*
+  1980, pp. 174–185. [doi](https://doi.org/10.1145/567446.567463) ·
+  [free (author)](https://lamport.azurewebsites.net/pubs/sometime.pdf)
+- B. Alpern, F. B. Schneider. "Defining Liveness." *Information Processing Letters* 21(4):181–185,
+  1985. [doi](https://doi.org/10.1016/0020-0190(85)90056-0) ·
+  [free (Cornell TR 85-650)](https://hdl.handle.net/1813/6495)
+- C. Courcoubetis, M. Y. Vardi, P. Wolper, M. Yannakakis. "Memory-Efficient Algorithms for the
+  Verification of Temporal Properties." *Formal Methods in System Design* 1(2/3):275–288, 1992.
+  [doi](https://doi.org/10.1007/BF00121128) ·
+  [free (author postprint, ORBi)](https://orbi.uliege.be/bitstream/2268/164300/1/CVWY%20FMSD%2092.pdf).
+  Nested depth-first search.
+- R. E. Tarjan. "Depth-First Search and Linear Graph Algorithms." *SIAM J. Computing*
+  1(2):146–160, 1972. [doi](https://doi.org/10.1137/0201010)
+- A. Tarski. "A Lattice-Theoretical Fixpoint Theorem and Its Applications." *Pacific J. Math.*
+  5(2):285–309, 1955. [doi](https://doi.org/10.2140/pjm.1955.5.285) ·
+  [free (publisher)](https://msp.org/pjm/1955/5-2/pjm-v5-n2-p11-s.pdf)
+
+### Fairness and games
+
+- N. Francez. *Fairness*. Texts and Monographs in Computer Science, Springer, 1986.
+  ISBN 978-0-387-96235-1. [doi](https://doi.org/10.1007/978-1-4612-4886-6) ·
+  [Amazon](https://www.amazon.com/dp/0387962352)
+- D. Lehmann, A. Pnueli, J. Stavi. "Impartiality, Justice and Fairness: The Ethics of Concurrent
+  Termination." *ICALP* 1981, LNCS 115, Springer, pp. 264–277.
+  [doi](https://doi.org/10.1007/3-540-10843-2_22)
+- R. Mazala. "Infinite Games." Ch. 2 in E. Grädel, W. Thomas, T. Wilke (eds.), *Automata, Logics,
+  and Infinite Games: A Guide to Current Research*, LNCS 2500, Springer, 2002, pp. 23–38.
+  §2.5.1 covers reachability games and attractors, with the `O(m + n)` bound as an exercise.
+  [doi (chapter)](https://doi.org/10.1007/3-540-36387-4_2) ·
+  [doi (book)](https://doi.org/10.1007/3-540-36387-4) ·
+  [Amazon](https://www.amazon.com/dp/3540003886)
+- W. Zielonka. "Infinite Games on Finitely Coloured Graphs with Applications to Automata on
+  Infinite Trees." *Theoretical Computer Science* 200(1–2):135–183, 1998.
+  [doi](https://doi.org/10.1016/S0304-3975(98)00009-7)
+
+### Abstraction and refinement
+
+- R. Milner. "An Algebraic Definition of Simulation Between Programs." *Proc. 2nd IJCAI*, 1971,
+  pp. 481–489. [free (IJCAI)](https://www.ijcai.org/Proceedings/71/Papers/044.pdf)
+- C. A. R. Hoare. "Proof of Correctness of Data Representations." *Acta Informatica*
+  1(4):271–281, 1972. [doi](https://doi.org/10.1007/BF00289507)
+- S. Owicki, D. Gries. "An Axiomatic Proof Technique for Parallel Programs I." *Acta Informatica*
+  6(4):319–340, 1976. [doi](https://doi.org/10.1007/BF00268134). Companion paper: "Verifying
+  Properties of Parallel Programs: An Axiomatic Approach." *CACM* 19(5):279–285, 1976
+  ([doi](https://doi.org/10.1145/360051.360224)). Auxiliary variables come from these papers.
+- M. Abadi, L. Lamport. "The Existence of Refinement Mappings." *Theoretical Computer Science*
+  82(2):253–284, 1991. [doi](https://doi.org/10.1016/0304-3975(91)90224-P) (free in Elsevier's open
+  archive) · [free (author, DEC SRC report 29 version)](https://lamport.azurewebsites.net/pubs/abadi-existence.pdf).
+  Introduces prophecy variables.
+- E. M. Clarke, O. Grumberg, D. E. Long. "Model Checking and Abstraction." *ACM TOPLAS*
+  16(5):1512–1542, 1994. [doi](https://doi.org/10.1145/186025.186051) ·
+  [free (author; unreachable when checked)](https://orna.cswp.cs.technion.ac.il/wp-content/uploads/sites/72/2022/12/abstraction.pdf)
+- O. Grumberg, D. E. Long. "Model Checking and Modular Verification." *ACM TOPLAS*
+  16(3):843–871, 1994. [doi](https://doi.org/10.1145/177492.177725)
+- E. M. Clarke, O. Grumberg, S. Jha, Y. Lu, H. Veith. "Counterexample-Guided Abstraction
+  Refinement." *CAV* 2000, LNCS 1855, Springer, pp. 154–169.
+  [doi](https://doi.org/10.1007/10722167_15)
+
+### Testing
+
+- W. M. McKeeman. "Differential Testing for Software." *Digital Technical Journal* 10(1):100–107,
+  1998. No DOI. [free (HP's DTJ archive, the official copy; unreachable when checked)](https://www.hpl.hp.com/hpjournal/dtj/vol10num1/vol10num1art9.pdf)
+
+### For later phases
+
+- L. Lamport. *Specifying Systems: The TLA+ Language and Tools for Hardware and Software Engineers*.
+  Addison-Wesley, 2002. ISBN 978-0-321-14306-8. (Phase 6.)
+  [free for personal use (author)](https://lamport.azurewebsites.net/tla/book.html) ·
+  [Amazon](https://www.amazon.com/dp/032114306X)

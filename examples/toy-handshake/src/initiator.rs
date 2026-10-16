@@ -149,7 +149,7 @@ pub enum Row {
 /// What the most recent `step()` did. Kept by the runtime (for tracing) and
 /// by the model (so properties can talk about how a state was entered).
 ///
-/// In the model this is a *history variable* (Abadi & Lamport 1991): it
+/// In the model this is a *history variable* (Owicki & Gries 1976): it
 /// records part of the past so a state predicate can express a property of
 /// the last transition. It costs state space: 10 configurations become 20
 /// (theory §5).
