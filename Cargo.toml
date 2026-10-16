@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["examples/toy-handshake"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Pinned exactly; see docs/decisions.md (D-002). Not vendored yet: pending sign-off.
+stateright = { version = "=0.31.0" }

@@ -1,0 +1,23 @@
+// TARGET OUTPUT, written by hand. What fsmgen-dot should emit for the
+// Initiator table in src/initiator.rs. One edge per row, in table order.
+digraph Initiator {
+    rankdir=LR;
+    node [shape=box, style=rounded, fontname="Helvetica"];
+    edge [fontname="Helvetica", fontsize=10];
+
+    __start [shape=point];
+    Idle;
+    Waiting;
+    Done    [peripheries=2];
+    Failed  [peripheries=2];
+
+    __start -> Idle;
+    Idle    -> Waiting [label="r0: Start / send_req { tries = 0 }"];
+    Idle    -> Idle    [label="r1: Resp"];
+    Idle    -> Idle    [label="r2: Timeout"];
+    Waiting -> Waiting [label="r3: Start"];
+    Waiting -> Done    [label="r4: Resp [resp_valid] / accept"];
+    Waiting -> Waiting [label="r5: Resp [!resp_valid] / discard"];
+    Waiting -> Waiting [label="r6: Timeout [tries < MAX_TRIES] / resend { tries += 1 }"];
+    Waiting -> Failed  [label="r7: Timeout [tries >= MAX_TRIES] / give_up"];
+}
